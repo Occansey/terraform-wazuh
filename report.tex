@@ -1,0 +1,675 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[french]{babel}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{float}
+\usepackage{array}
+
+\geometry{margin=2.5cm}
+
+% Code listing style
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10},
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red}
+}
+
+\title{
+    \vspace{-2cm}
+    \textbf{Infrastructure de Monitoring et Sécurité}\\
+    \large Wazuh SIEM + Zabbix NMS - Proof of Concept
+}
+\author{[Votre Nom]}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section*{Guide des Captures d'Écran (13 screenshots)}
+%==============================================================================
+\addcontentsline{toc}{section}{Guide des Captures d'Écran}
+
+\begin{center}
+\begin{tabular}{|c|p{8cm}|p{4cm}|}
+\hline
+\textbf{\#} & \textbf{Description} & \textbf{Où prendre} \\
+\hline
+1 & Console AWS - 3 instances EC2 & AWS Console \\
+2 & docker ps - conteneurs Wazuh & Terminal serveur \\
+3 & Page login Wazuh Dashboard & Navigateur \\
+4 & Agents enregistrés (2 agents) & Dashboard > Agents \\
+5 & Événements SSH/auth & Dashboard > Events \\
+6 & Alerte brute-force & Dashboard > Events \\
+7 & IP bloquée iptables & Terminal agent \\
+8 & Alerte FIM /etc/hosts & Dashboard > FIM \\
+9 & Vulnérabilités CVE & Dashboard > Vuln \\
+10 & Analyse VirusTotal & Dashboard > Events \\
+11 & Alertes Suricata & Dashboard > Events \\
+12 & Alerte SQL injection & Dashboard > Events \\
+13 & Détection EICAR/YARA & Dashboard > Events \\
+\hline
+\end{tabular}
+\end{center}
+
+\vspace{0.5cm}
+\textbf{Informations de connexion:}
+\begin{lstlisting}
+Wazuh Dashboard: https://3.237.238.241:443
+User: admin | Password: SecretPassword
+
+SSH Serveur:  ssh -i wazuh-lab-key.pem ubuntu@3.237.238.241
+SSH Agent 1:  ssh -i wazuh-lab-key.pem ubuntu@52.54.76.155
+SSH Agent 2:  ssh -i wazuh-lab-key.pem ubuntu@3.231.3.126
+\end{lstlisting}
+
+\newpage
+
+%==============================================================================
+\section{Introduction}
+%==============================================================================
+
+Ce rapport présente la mise en place d'une infrastructure complète de monitoring et sécurité combinant:
+\begin{itemize}
+    \item \textbf{Wazuh SIEM} - Sécurité, détection d'intrusions, logs
+    \item \textbf{Zabbix NMS} - Monitoring infrastructure, performances
+\end{itemize}
+
+L'objectif est de démontrer la complémentarité de ces deux outils pour une surveillance complète d'un système d'information.
+
+%==============================================================================
+\part{Partie I - Wazuh SIEM}
+%==============================================================================
+
+\section{Architecture Wazuh déployée}
+
+L'infrastructure est déployée sur AWS via Terraform et comprend:
+\begin{itemize}
+    \item 1 serveur Wazuh (Docker) - IP: 3.237.238.241
+    \item Agent 1 - Réseau/Suricata - IP: 52.54.76.155
+    \item Agent 2 - Web/YARA - IP: 3.231.3.126
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 1}\\
+    AWS Console > EC2 > Instances\\
+    Montrer les 3 instances running
+    \vspace{3cm}}}
+    \caption{Infrastructure AWS déployée}
+    \label{fig:aws-instances}
+\end{figure}
+
+%==============================================================================
+\section{Installation et Configuration du Serveur Wazuh}
+%==============================================================================
+
+\subsection{Déploiement via Docker}
+
+Le serveur Wazuh est déployé via Docker Compose sur une instance EC2 t3.large.
+
+\begin{lstlisting}[language=bash]
+ssh -i wazuh-lab-key.pem ubuntu@3.237.238.241
+docker ps
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 2}\\
+    Terminal: docker ps\\
+    Montrer wazuh.manager, wazuh.indexer, wazuh.dashboard
+    \vspace{3cm}}}
+    \caption{Conteneurs Docker Wazuh}
+    \label{fig:docker-ps}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 3}\\
+    Navigateur: https://3.237.238.241:443\\
+    Page de connexion Wazuh
+    \vspace{3cm}}}
+    \caption{Interface de connexion Wazuh}
+    \label{fig:wazuh-login}
+\end{figure}
+
+%==============================================================================
+\section{Configuration des Agents}
+%==============================================================================
+
+\begin{lstlisting}[language=bash]
+# Verification Agent 1
+ssh -i wazuh-lab-key.pem ubuntu@52.54.76.155
+systemctl status wazuh-agent
+
+# Verification Agent 2
+ssh -i wazuh-lab-key.pem ubuntu@3.231.3.126
+systemctl status wazuh-agent
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 4}\\
+    Dashboard > Agents\\
+    Montrer 2 agents Active
+    \vspace{3cm}}}
+    \caption{Agents enregistrés dans Wazuh}
+    \label{fig:agents-registered}
+\end{figure}
+
+%==============================================================================
+\section{Collecte de Logs Système}
+%==============================================================================
+
+\begin{lstlisting}[language=xml]
+<localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/auth.log</location>
+</localfile>
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 5}\\
+    Dashboard > Security Events\\
+    Filtrer: rule.groups:authentication
+    \vspace{3cm}}}
+    \caption{Logs d'authentification collectés}
+    \label{fig:auth-logs}
+\end{figure}
+
+%==============================================================================
+\section{Active Response - Détection Brute-Force}
+%==============================================================================
+
+\begin{lstlisting}[language=xml]
+<active-response>
+    <command>firewall-drop</command>
+    <location>local</location>
+    <rules_id>5763</rules_id>
+    <timeout>300</timeout>
+</active-response>
+\end{lstlisting}
+
+\textbf{Test:}
+\begin{lstlisting}[language=bash]
+# Depuis votre machine
+for i in {1..10}; do ssh invalid@52.54.76.155; done
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 6}\\
+    Dashboard > Security Events\\
+    Rechercher: rule.id:5763 ou "brute"
+    \vspace{3cm}}}
+    \caption{Détection d'attaque brute-force}
+    \label{fig:brute-force}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 7}\\
+    Sur Agent 1: sudo iptables -L -n\\
+    Montrer IP bloquée
+    \vspace{3cm}}}
+    \caption{Réponse automatique - IP bloquée}
+    \label{fig:ip-blocked}
+\end{figure}
+
+%==============================================================================
+\section{File Integrity Monitoring (FIM)}
+%==============================================================================
+
+\begin{lstlisting}[language=xml]
+<syscheck>
+    <directories realtime="yes">/etc/passwd,/etc/hosts</directories>
+</syscheck>
+\end{lstlisting}
+
+\textbf{Test:}
+\begin{lstlisting}[language=bash]
+ssh -i wazuh-lab-key.pem ubuntu@3.231.3.126
+/home/ubuntu/test_fim.sh
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 8}\\
+    Dashboard > Integrity Monitoring\\
+    ou Events avec filtre "syscheck"
+    \vspace{3cm}}}
+    \caption{Alerte FIM}
+    \label{fig:fim-alert}
+\end{figure}
+
+%==============================================================================
+\section{Détection de Vulnérabilités}
+%==============================================================================
+
+\begin{lstlisting}[language=xml]
+<vulnerability-detector>
+    <enabled>yes</enabled>
+    <interval>5m</interval>
+</vulnerability-detector>
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 9}\\
+    Dashboard > Vulnerability Detection\\
+    Liste des CVE
+    \vspace{3cm}}}
+    \caption{Scanner de vulnérabilités}
+    \label{fig:vuln-scanner}
+\end{figure}
+
+%==============================================================================
+\section{Intégration VirusTotal}
+%==============================================================================
+
+\begin{lstlisting}[language=xml]
+<integration>
+    <name>virustotal</name>
+    <api_key>YOUR_API_KEY</api_key>
+</integration>
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 10}\\
+    Dashboard > Events\\
+    Rechercher: "virustotal"
+    \vspace{3cm}}}
+    \caption{Intégration VirusTotal}
+    \label{fig:virustotal}
+\end{figure}
+
+%==============================================================================
+\section{Intégration IDS Suricata}
+%==============================================================================
+
+Suricata est un IDS/IPS open-source capable de détecter les intrusions réseau. Il est configuré sur l'Agent 1 avec 47,105 règles Emerging Threats.
+
+\begin{lstlisting}[language=bash]
+# Sur Agent 1 - Verification Suricata
+ssh -i wazuh-lab-key.pem ubuntu@52.54.76.155
+systemctl status suricata
+cat /var/log/suricata/suricata.log | grep "rules loaded"
+# Output: 47105 rules loaded
+\end{lstlisting}
+
+\subsection{Test avec Nmap}
+
+Un scan Nmap a été effectué pour déclencher des alertes Suricata:
+
+\begin{lstlisting}[language=bash]
+# Scan de ports avec detection de version
+nmap -Pn -sT -sV --script=vuln -T4 52.54.76.155
+
+# Resultats:
+# PORT   STATE SERVICE VERSION
+# 22/tcp open  ssh     OpenSSH 8.9p1
+# CVE-2024-6387 (regreSSHion) detecte
+\end{lstlisting}
+
+\subsection{Alertes Suricata détectées}
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Timestamp} & \textbf{Alerte} & \textbf{Source IP} \\
+\hline
+21:46:07 & ET SCAN Potential SSH Scan & 89.90.35.33 \\
+21:29:24 & ET DROP Spamhaus DROP Listed Traffic & 45.144.212.221 \\
+21:28:33 & ET DROP Dshield Block Listed Source & 205.210.31.202 \\
+21:21:35 & ET SCAN Potential SSH Scan & 89.90.35.33 \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 11}\\
+    Dashboard > Discover\\
+    Filtre: rule.groups:suricata\\
+    Montrer les alertes ET SCAN et ET DROP
+    \vspace{3cm}}}
+    \caption{Alertes IDS Suricata dans Wazuh}
+    \label{fig:suricata}
+\end{figure}
+
+%==============================================================================
+\section{Détection Injection SQL}
+%==============================================================================
+
+\textbf{Test:}
+\begin{lstlisting}[language=bash]
+curl "http://3.231.3.126/index.php?id=1' OR '1'='1"
+# Ou sur Agent 2:
+/home/ubuntu/test_sqli.sh
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 12}\\
+    Dashboard > Events\\
+    Rechercher: "sql" ou rule.id:31103
+    \vspace{3cm}}}
+    \caption{Détection d'injection SQL}
+    \label{fig:sql-injection}
+\end{figure}
+
+%==============================================================================
+\section{Détection Malware - YARA/EICAR}
+%==============================================================================
+
+\begin{lstlisting}
+rule EICAR_Test_File {
+    strings: $eicar = "X5O!P%@AP[4\\PZX54(P^)7CC)7}"
+    condition: $eicar
+}
+\end{lstlisting}
+
+\textbf{Test:}
+\begin{lstlisting}[language=bash]
+ssh -i wazuh-lab-key.pem ubuntu@3.231.3.126
+/home/ubuntu/test_eicar.sh
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    \textbf{SCREENSHOT 13}\\
+    Dashboard > Events\\
+    Rechercher: "yara" ou "eicar"
+    \vspace{3cm}}}
+    \caption{Détection malware EICAR}
+    \label{fig:eicar}
+\end{figure}
+
+%==============================================================================
+\part{Partie II - Zabbix NMS}
+%==============================================================================
+
+%==============================================================================
+\section{Présentation Zabbix}
+%==============================================================================
+
+Zabbix est un système de monitoring d'infrastructure (NMS - Network Management System) open-source. Contrairement à Wazuh qui se concentre sur la sécurité, Zabbix surveille les performances et la disponibilité.
+
+\subsection{Architecture Zabbix déployée}
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Instance} & \textbf{Rôle} & \textbf{Type} \\
+\hline
+Zabbix Server & LAMP + Zabbix 6.4 & t2.medium \\
+Web Server & Apache + Agent & t2.micro \\
+Linux Client & Agent monitored & t2.micro \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{lstlisting}[language=bash]
+# Verification Zabbix Server
+ssh -i wazuh-lab-key.pem ubuntu@[ZABBIX_SERVER_IP]
+systemctl status zabbix-server
+systemctl status apache2
+mysql -u zabbix -p zabbix
+\end{lstlisting}
+
+\subsection{Fonctionnalités Zabbix}
+
+\begin{itemize}
+    \item \textbf{Métriques:} CPU, RAM, Disque, Réseau
+    \item \textbf{Triggers:} Alertes sur seuils (CPU > 80\%, Disque < 10\%)
+    \item \textbf{Templates:} "Linux by Zabbix agent" pré-configuré
+    \item \textbf{Graphiques:} Historique des métriques
+    \item \textbf{Auto-discovery:} Détection automatique des hôtes
+\end{itemize}
+
+\subsection{Tests Zabbix effectués}
+
+\textbf{1. Test CPU Load:}
+\begin{lstlisting}[language=bash]
+# Sur l'agent monitored
+yes > /dev/null &
+yes > /dev/null &
+yes > /dev/null &
+# Attendre 5 minutes pour trigger
+killall yes
+\end{lstlisting}
+
+\textbf{2. Test Disk Space:}
+\begin{lstlisting}[language=bash]
+dd if=/dev/zero of=/tmp/bigfile bs=1M count=5000
+# Trigger: "Free disk space is less than 20%"
+rm /tmp/bigfile
+\end{lstlisting}
+
+\textbf{3. Test Memory:}
+\begin{lstlisting}[language=bash]
+stress --vm 1 --vm-bytes 80% --timeout 300s
+\end{lstlisting}
+
+\subsection{Triggers Zabbix configurés}
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Trigger} & \textbf{Expression} & \textbf{Severity} \\
+\hline
+High CPU & avg(system.cpu.util,5m)>80 & Warning \\
+Critical Memory & vm.memory.size[available]<500M & High \\
+Low Disk Space & vfs.fs.size[/,pfree]<20 & Warning \\
+Critical Disk & vfs.fs.size[/,pfree]<10 & High \\
+\hline
+\end{tabular}
+\end{center}
+
+%==============================================================================
+\section{Discussion Critique - Analyse des Problèmes}
+%==============================================================================
+
+Cette section présente une analyse honnête des problèmes rencontrés et des leçons apprises.
+
+\subsection{Problèmes de Conception}
+
+\textbf{1. Configuration mot de passe cassée}
+
+Le script Terraform prétendait configurer un mot de passe personnalisé, mais Wazuh Docker utilise des hashes internes générés au premier démarrage. Le fichier \texttt{.env} est ignoré pour l'authentification.
+
+\textit{Leçon:} Tester le déploiement complet avant de documenter. Ne jamais assumer qu'une configuration fonctionne sans validation.
+
+\textbf{2. Instance sous-dimensionnée pour Suricata}
+
+L'Agent 1 (t2.micro, 914MB RAM) était totalement inadéquat. La commande \texttt{suricata-update} était tuée par l'OOM killer.
+
+\begin{lstlisting}[language=bash]
+# Ce qui se passait:
+suricata-update -D /var/lib/suricata --no-test
+# Killed (Out of Memory)
+\end{lstlisting}
+
+\textit{Solution appliquée:} Téléchargement manuel des règles (47,105 règles).
+
+\textit{Correction requise:} Utiliser t2.small minimum (2GB RAM) pour tout agent avec Suricata.
+
+\textbf{3. Règles custom avec syntaxe invalide}
+
+Les règles \texttt{local\_rules.xml} utilisaient des options inexistantes:
+\begin{itemize}
+    \item \texttt{url\_pcre2} - n'existe pas dans Wazuh
+    \item \texttt{decoded\_as: json} - option invalide
+\end{itemize}
+
+\textit{Cause:} Copier-coller de documentation sans tester.
+
+\textbf{4. Interface réseau erronée}
+
+Le script utilisait \texttt{eth0} alors qu'AWS EC2 utilise \texttt{ens5}. C'est une connaissance basique d'AWS.
+
+\textbf{5. Règle YARA avec escape sequence cassée}
+
+La règle EICAR avait des backslashes mal échappés, causant des erreurs de parsing.
+
+\subsection{Ce qui n'a PAS été testé}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Fonctionnalité} & \textbf{État réel} \\
+\hline
+Active Response (IP block) & Non vérifié fonctionnel \\
+VirusTotal integration & Non configuré (API key manquante) \\
+Vulnerability Detection & Temps de scan trop long pour POC \\
+Email notifications & Non configuré \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Comparaison Wazuh vs Zabbix}
+
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Critère} & \textbf{Wazuh} & \textbf{Zabbix} \\
+\hline
+Type & SIEM (Sécurité) & NMS (Infrastructure) \\
+Focus & Détection d'intrusions & Monitoring performance \\
+Agents & wazuh-agent & zabbix-agent \\
+Alertes & Security Events & Triggers configurables \\
+Logs & Oui (centralisation) & Non (focus métriques) \\
+IDS & Suricata intégration & Non natif \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Intégration Wazuh + Zabbix}
+
+Ces deux outils sont \textbf{complémentaires}:
+\begin{itemize}
+    \item \textbf{Zabbix:} "Le serveur tourne-t-il? CPU, RAM, disque OK?"
+    \item \textbf{Wazuh:} "Le serveur est-il compromis? Qui s'y connecte?"
+\end{itemize}
+
+Une architecture intégrée utiliserait:
+\begin{enumerate}
+    \item Zabbix pour le monitoring infrastructure (uptime, performance)
+    \item Wazuh pour la sécurité (logs, intrusions, compliance)
+    \item Grafana comme dashboard unifié avec les deux sources
+    \item Webhooks bidirectionnels pour corrélation d'événements
+\end{enumerate}
+
+\subsection{Recommandations pour Production}
+
+\begin{enumerate}
+    \item \textbf{Sizing:} Minimum t2.medium pour tout composant Wazuh
+    \item \textbf{Testing:} Pipeline CI/CD avec tests de déploiement
+    \item \textbf{Documentation:} Documenter APRÈS avoir testé
+    \item \textbf{Passwords:} Ne jamais utiliser les credentials par défaut
+    \item \textbf{Backups:} Configurer avant le premier jour de production
+\end{enumerate}
+
+%==============================================================================
+\section{Conclusion}
+%==============================================================================
+
+Ce POC a démontré les capacités du SIEM Wazuh, mais aussi les défis d'un déploiement réel:
+
+\textbf{Fonctionnalités validées:}
+\begin{itemize}
+    \item Collecte centralisée des logs
+    \item File Integrity Monitoring (FIM)
+    \item Détection Suricata IDS (après correction)
+    \item Détection YARA/EICAR (après correction)
+\end{itemize}
+
+\textbf{Fonctionnalités partiellement testées:}
+\begin{itemize}
+    \item SQL Injection detection
+    \item Active Response brute-force
+\end{itemize}
+
+\textbf{Non implémenté:}
+\begin{itemize}
+    \item VirusTotal integration
+    \item Email notifications
+    \item Dashboard personnalisé
+\end{itemize}
+
+\textbf{Temps total de debugging:} $\sim$4 heures pour corriger les erreurs de configuration.
+
+\textit{La leçon principale: Un POC qui "devrait fonctionner" n'est pas un POC fonctionnel. Tester, tester, tester.}
+
+\subsection{Bilan Final - Les Deux Projets}
+
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Aspect} & \textbf{Wazuh} & \textbf{Zabbix} & \textbf{Combiné} \\
+\hline
+Déploiement & Complexe (Docker) & Simple (LAMP) & Terraform OK \\
+Debugging & 4h & 1h & 5h total \\
+Fonctionnel & Oui (après fixes) & Oui & Oui \\
+Documentation & Incomplète & Correcte & Ce rapport \\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{Ce qui manque pour une vraie production:}
+\begin{enumerate}
+    \item Dashboard Grafana unifié
+    \item Alertes email configurées
+    \item Corrélation Wazuh $\leftrightarrow$ Zabbix
+    \item Backup automatisé
+    \item HTTPS avec certificats valides
+    \item Authentification centralisée (LDAP/SSO)
+\end{enumerate}
+
+%==============================================================================
+\section*{Annexes}
+%==============================================================================
+
+\textbf{Accès Dashboard:}
+\begin{itemize}
+    \item URL: \texttt{https://3.237.238.241:443}
+    \item User: \texttt{admin}
+    \item Password: \texttt{SecretPassword}
+\end{itemize}
+
+\textbf{Commandes SSH:}
+\begin{lstlisting}[language=bash]
+ssh -i wazuh-lab-key.pem ubuntu@3.237.238.241  # Serveur
+ssh -i wazuh-lab-key.pem ubuntu@52.54.76.155  # Agent 1
+ssh -i wazuh-lab-key.pem ubuntu@3.231.3.126   # Agent 2
+\end{lstlisting}
+
+\end{document}
